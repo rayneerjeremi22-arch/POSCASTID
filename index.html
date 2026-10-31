@@ -29,9 +29,11 @@ tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Plus Jakarta Sans"
           <span id="dot" class="w-2 h-2 rounded-full bg-amber-400"></span><span id="status">Menghubungkan…</span>
         </div>
       </div>
+      <div class="flex gap-2">
+      <button id="btnMenu" aria-label="Menu" class="w-11 h-11 rounded-xl bg-red-600 text-white font-extrabold grid place-items-center active:scale-95">☰</button>
       <button id="btnScan" aria-label="Scan barcode" class="w-11 h-11 rounded-xl bg-slate-900 text-white grid place-items-center active:scale-95">
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M7 9v6M11 9v6M15 9v6M18 10v4"/></svg>
-      </button>
+      </button></div>
     </div>
     <div class="flex items-center gap-2 mt-3">
       <select id="tipe" class="flex-1 h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold">
@@ -45,7 +47,7 @@ tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Plus Jakarta Sans"
   </header>
 
   <!-- KERANJANG -->
-  <main class="px-4 pt-3 pb-[380px]">
+  <main class="px-4 pt-3 pb-[430px]">
     <div id="cart" class="space-y-3"></div>
     <button id="btnTambah" class="mt-3 w-full h-11 rounded-xl border-2 border-dashed border-slate-300 text-slate-600 font-semibold text-sm active:bg-slate-100">+ Tambah produk</button>
   </main>
@@ -72,9 +74,20 @@ tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Plus Jakarta Sans"
       <button data-m="QR PAY" class="pay h-14 rounded-xl border-2 border-slate-600 bg-slate-800 text-xs font-bold">QR PAY</button>
       <button data-m="SPLIT" class="pay h-14 rounded-xl border-2 border-slate-600 bg-slate-800 text-xs font-bold">SPLIT</button>
     </div>
-    <button id="btnBayar" class="mt-3 w-full h-14 rounded-2xl bg-red-600 active:bg-red-700 disabled:opacity-50 text-white text-base font-extrabold tracking-wide">BAYAR SEKARANG</button>
+    <button id="btnKasbon" class="mt-2 w-full h-9 rounded-lg border border-slate-600 text-xs font-semibold text-slate-300">Catat sebagai kasbon (bayar nanti)</button>
+    <button id="btnBayar" class="mt-2 w-full h-14 rounded-2xl bg-red-600 active:bg-red-700 disabled:opacity-50 text-white text-base font-extrabold tracking-wide">BAYAR SEKARANG</button>
   </section>
 
+  <div id="dash" class="hidden fixed inset-0 z-40 bg-slate-50 overflow-y-auto"><div id="dashBody" class="mx-auto max-w-md"></div></div>
+  <div id="login" class="fixed inset-0 z-[70] bg-slate-900 text-white flex items-center justify-center px-6">
+    <div class="w-full max-w-xs">
+      <h1 class="text-3xl font-extrabold text-center">PosCast</h1>
+      <p class="text-center text-slate-400 text-sm mt-1">Masukkan PIN untuk masuk</p>
+      <div id="pinDots" class="flex justify-center gap-3 my-6"></div>
+      <div id="keypad" class="grid grid-cols-3 gap-3"></div>
+      <p id="pinErr" class="text-center text-red-400 text-sm mt-4 min-h-[1.25rem]"></p>
+    </div>
+  </div>
   <div id="modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-end justify-center"></div>
   <div id="toast" class="hidden fixed top-4 inset-x-0 z-[60] mx-auto w-fit max-w-[90%] rounded-xl px-4 py-2 text-sm font-semibold text-white shadow-lg"></div>
 </div>
@@ -82,10 +95,10 @@ tailwind.config = { theme: { extend: { fontFamily: { sans: ['"Plus Jakarta Sans"
 <script>
 /* ============ KONFIGURASI ============ */
 const API_URL = 'https://script.google.com/macros/s/AKfycbyGsIAkIDS5gEsnYA0JcRYBGaCxdZN9VWkMABzxg9On_KHMsQCtnTNSQVfu3bX3AMOOAA/exec';
-const ID_SHIFT = 'SHIFT-DEMO'; // Batch 3: diganti ID shift aktif
+const SES = { token: sessionStorage.getItem('pc_t') || '', user: JSON.parse(sessionStorage.getItem('pc_u') || 'null') };
 
 /* ============ STATE ============ */
-const S = { produk: [], cart: [], metode: 'CASH', mode: 'Meja', nomor: '', busy: false };
+const S = { produk: [], cart: [], metode: 'CASH', mode: 'Meja', nomor: '', busy: false, shift: null, lock: false };
 
 /* ============ UTIL ============ */
 const $ = id => document.getElementById(id);
@@ -102,13 +115,19 @@ function setStatus(ok, text) {
 }
 
 /* ============ API ============ */
+function guard(r) {
+  if (!r.ok && /Sesi/.test(r.error || '')) {
+    sessionStorage.clear(); toast('Sesi berakhir, silakan masuk lagi', false); setTimeout(() => location.reload(), 1200);
+  }
+  return r;
+}
 async function apiGet(params) {
-  const r = await fetch(API_URL + '?' + new URLSearchParams(params));
-  return r.json();
+  const r = await fetch(API_URL + '?' + new URLSearchParams({ ...params, t: SES.token }));
+  return guard(await r.json());
 }
 async function apiPost(body) {
-  const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
-  return r.json();
+  const r = await fetch(API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ ...body, t: SES.token }) });
+  return guard(await r.json());
 }
 async function loadProduk() {
   try {
@@ -124,8 +143,8 @@ async function loadProduk() {
 
 /* ============ MODAL ============ */
 function openModal(html) { const m = $('modal'); m.innerHTML = '<div class="w-full max-w-md bg-white rounded-t-3xl p-4 max-h-[85vh] overflow-y-auto">' + html + '</div>'; m.classList.remove('hidden'); }
-function closeModal() { $('modal').classList.add('hidden'); $('modal').innerHTML = ''; }
-$('modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
+function closeModal() { S.lock = false; $('modal').classList.add('hidden'); $('modal').innerHTML = ''; }
+$('modal').addEventListener('click', e => { if (e.target.id === 'modal' && !S.lock) closeModal(); });
 
 function askInput(title, placeholder, initial = '', hint = '') {
   return new Promise(resolve => {
@@ -251,30 +270,188 @@ $('btnRincian').onclick = () => {
   $('detail').style.maxHeight = rOpen ? '120px' : '0';
   $('chev').style.transform = rOpen ? 'rotate(180deg)' : '';
 };
-function renderPay() { document.querySelectorAll('.pay').forEach(b => b.classList.toggle('pay-on', b.dataset.m === S.metode)); }
+function renderPay() {
+  document.querySelectorAll('.pay').forEach(b => b.classList.toggle('pay-on', b.dataset.m === S.metode));
+  const k = S.metode === 'KASBON';
+  $('btnKasbon').className = 'mt-2 w-full h-9 rounded-lg border text-xs font-semibold ' + (k ? 'border-red-500 bg-white text-red-600' : 'border-slate-600 text-slate-300');
+  $('btnKasbon').textContent = k ? 'Kasbon aktif · ketuk untuk batalkan' : 'Catat sebagai kasbon (bayar nanti)';
+}
 $('pays').onclick = e => { const b = e.target.closest('.pay'); if (b) { S.metode = b.dataset.m; renderPay(); } };
 
 /* ============ BAYAR ============ */
 $('btnBayar').onclick = async () => {
   if (S.busy) return;
   if (!S.cart.length) return toast('Keranjang masih kosong', false);
+  if (!S.shift) { toast('Mulai shift terlebih dahulu', false); return shiftModal(); }
+  let pelanggan = null;
+  if (S.metode === 'KASBON') { pelanggan = await kasbonModal(); if (!pelanggan) return; }
   S.busy = true; $('btnBayar').disabled = true; $('btnBayar').textContent = 'MEMPROSES…';
   try {
     const res = await apiPost({
-      action: 'createTransaction', idShift: ID_SHIFT, metode: S.metode, diskon: 0,
+      action: 'createTransaction', metode: S.metode, diskon: 0, pelanggan,
       items: S.cart.map(c => ({ sku: c.sku, qty: c.qty, diskonItem: discOf(c), catatan: c.note }))
     });
     if (!res.ok) throw new Error(res.error);
     toast('Berhasil · ' + res.idTransaksi + ' · ' + rp(res.total));
-    S.cart = []; S.nomor = ''; renderMode(); render();
+    S.cart = []; S.nomor = ''; S.metode = 'CASH'; renderPay(); renderMode(); render();
     await loadProduk(); // segarkan stok
   } catch (e) { toast('Gagal: ' + e.message, false); }
   finally { S.busy = false; $('btnBayar').disabled = false; $('btnBayar').textContent = 'BAYAR SEKARANG'; }
 };
 
+/* ============ BATCH 3: PIN, SHIFT, KASBON, DASHBOARD ============ */
+let pin = '';
+function drawPin() {
+  $('pinDots').innerHTML = Array.from({ length: 6 }, (_, i) => `<span class="w-3.5 h-3.5 rounded-full ${i < pin.length ? 'bg-white' : 'bg-slate-600'}"></span>`).join('');
+}
+$('keypad').innerHTML = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '⌫', '0', 'OK']
+  .map(k => `<button data-k="${k}" class="h-16 rounded-2xl ${k === 'OK' ? 'bg-red-600' : 'bg-slate-800'} text-xl font-bold active:scale-95">${k}</button>`).join('');
+function pressKey(k) {
+  $('pinErr').textContent = '';
+  if (k === '⌫') pin = pin.slice(0, -1);
+  else if (k === 'OK') return doLogin();
+  else if (pin.length < 6) pin += k;
+  drawPin();
+  if (pin.length === 6) doLogin();
+}
+$('keypad').onclick = e => { const b = e.target.closest('button[data-k]'); if (b) pressKey(b.dataset.k); };
+document.addEventListener('keydown', e => {
+  if ($('login').classList.contains('hidden')) return;
+  if (/^\d$/.test(e.key)) pressKey(e.key); else if (e.key === 'Backspace') pressKey('⌫'); else if (e.key === 'Enter') pressKey('OK');
+});
+async function doLogin() {
+  if (pin.length < 4 || S.busy) return;
+  S.busy = true;
+  try {
+    const r = await apiPost({ action: 'login', pin });
+    if (!r.ok) throw new Error(r.error);
+    SES.token = r.token; SES.user = r.user;
+    sessionStorage.setItem('pc_t', r.token); sessionStorage.setItem('pc_u', JSON.stringify(r.user));
+    pin = ''; drawPin(); startApp();
+  } catch (e) { $('pinErr').textContent = e.message; pin = ''; drawPin(); }
+  finally { S.busy = false; }
+}
+async function startApp() {
+  $('login').classList.add('hidden');
+  $('btnMenu').textContent = SES.user.nama.charAt(0).toUpperCase();
+  await loadProduk();
+  const r = await apiPost({ action: 'shiftCurrent' });
+  S.shift = r.shift || null;
+  if (!S.shift) shiftModal();
+}
+async function logout() {
+  try { await apiPost({ action: 'logout' }); } catch (e) {}
+  sessionStorage.clear(); location.reload();
+}
+
+/* --- Shift --- */
+function shiftModal() {
+  S.lock = true;
+  openModal(`<h3 class="font-bold text-lg">Mulai shift</h3>
+    <p class="text-sm text-slate-500 mb-3">Masukkan modal awal uang di laci kas.</p>
+    <input id="sMod" inputmode="numeric" class="w-full h-12 rounded-xl border border-slate-300 px-3" placeholder="mis. 200000">
+    <button id="sGo" class="mt-3 w-full h-12 rounded-xl bg-red-600 text-white font-bold">Mulai shift</button>
+    ${SES.user.role === 'owner' ? '<button id="sSkip" class="mt-2 w-full h-11 rounded-xl bg-slate-100 font-semibold">Lihat dashboard saja</button>' : ''}`);
+  $('sMod').focus();
+  $('sGo').onclick = async () => {
+    if ($('sMod').value.trim() === '') return toast('Isi modal awal (boleh 0)', false);
+    const modal = Number($('sMod').value.replace(/[^\d]/g, ''));
+    const r = await apiPost({ action: 'shiftStart', modal });
+    if (!r.ok) return toast(r.error, false);
+    S.shift = r.shift; closeModal();
+    toast(r.resumed ? 'Melanjutkan shift yang masih terbuka' : 'Shift dimulai · modal ' + rp(modal));
+  };
+  if ($('sSkip')) $('sSkip').onclick = () => { closeModal(); openDash(); };
+}
+async function kas(tipe) {
+  if (!S.shift) return toast('Mulai shift terlebih dahulu', false);
+  const v = await askInput(tipe === 'in' ? 'Kas masuk (Paid In)' : 'Kas keluar (Paid Out)', 'Nominal rupiah');
+  const n = Number((v || '').replace(/[^\d]/g, ''));
+  if (!n) return;
+  const r = await apiPost({ action: 'paidInOut', tipe, nominal: n });
+  if (!r.ok) return toast(r.error, false);
+  S.shift = r.shift; toast('Tercatat ' + rp(n));
+}
+async function tutupShift() {
+  if (!S.shift) return toast('Tidak ada shift aktif', false);
+  const v = await askInput('Tutup shift', 'Total uang fisik di laci', '', 'Hitung semua uang di laci lalu isi totalnya. Sistem membandingkan dengan catatan transaksi.');
+  if (!v) return;
+  const r = await apiPost({ action: 'shiftEnd', kasFisik: Number(v.replace(/[^\d]/g, '')) });
+  if (!r.ok) return toast(r.error, false);
+  const w = r.selisih === 0 ? 'text-emerald-600' : r.selisih < 0 ? 'text-red-600' : 'text-amber-600';
+  const row = (a, b, c = '') => `<div class="flex justify-between py-1 text-sm"><span class="text-slate-600">${a}</span><b class="tabular-nums ${c}">${b}</b></div>`;
+  S.lock = true;
+  openModal(`<h3 class="font-bold text-lg mb-2">Shift ditutup</h3>
+    ${row('Modal awal', rp(r.modal))}${row('Penjualan tunai', rp(r.tunai))}${row('Kas masuk', rp(r.paidIn))}${row('Kas keluar', '−' + rp(r.paidOut))}
+    <div class="border-t my-2"></div>
+    ${row('Seharusnya di laci', rp(r.expected))}${row('Uang fisik', rp(r.fisik))}
+    ${row('Selisih', (r.selisih > 0 ? '+' : r.selisih < 0 ? '−' : '') + rp(Math.abs(r.selisih)) + (r.selisih === 0 ? ' · cocok' : r.selisih < 0 ? ' · kurang' : ' · lebih'), w)}
+    <button id="selesai" class="mt-3 w-full h-12 rounded-xl bg-slate-900 text-white font-bold">Selesai & keluar</button>`);
+  $('selesai').onclick = logout;
+}
+
+/* --- Menu --- */
+$('btnMenu').onclick = () => {
+  const owner = SES.user.role === 'owner';
+  const items = [...(S.shift ? [] : [['mulai', 'Mulai shift']]), ['pin', 'Kas masuk (Paid In)'], ['pout', 'Kas keluar (Paid Out)'], ['tutup', 'Tutup shift'], ...(owner ? [['dash', 'Dashboard laba operasional']] : []), ['logout', 'Keluar']];
+  openModal(`<div class="text-sm text-slate-500 mb-3">${esc(SES.user.nama)} · ${esc(SES.user.role)}${S.shift ? ' · shift ' + esc(S.shift['ID Shift']) : ' · belum ada shift'}</div>
+    <div class="space-y-2">${items.map(([k, t]) => `<button data-mn="${k}" class="w-full h-12 rounded-xl bg-slate-100 font-semibold text-left px-4 active:bg-slate-200">${t}</button>`).join('')}</div>`);
+  const act = { mulai: shiftModal, pin: () => kas('in'), pout: () => kas('out'), tutup: tutupShift, dash: openDash, logout };
+  $('modal').querySelectorAll('[data-mn]').forEach(b => b.onclick = () => { closeModal(); act[b.dataset.mn](); });
+};
+
+/* --- Kasbon --- */
+$('btnKasbon').onclick = () => { S.metode = S.metode === 'KASBON' ? 'CASH' : 'KASBON'; renderPay(); };
+function kasbonModal() {
+  return new Promise(res => {
+    const tempo = new Date(Date.now() + 7 * 864e5).toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+    openModal(`<h3 class="font-bold mb-3">Kasbon pelanggan</h3>
+      <label class="text-xs text-slate-500">Nama pelanggan</label>
+      <input id="kbNama" class="w-full h-12 rounded-xl border border-slate-300 px-3 mb-3" placeholder="mis. Bu Siti">
+      <label class="text-xs text-slate-500">Tanggal jatuh tempo</label>
+      <input id="kbTempo" type="date" value="${tempo}" class="w-full h-12 rounded-xl border border-slate-300 px-3">
+      <div class="flex gap-2 mt-4"><button id="kbNo" class="flex-1 h-11 rounded-xl bg-slate-100 font-semibold">Batal</button><button id="kbOk" class="flex-1 h-11 rounded-xl bg-red-600 text-white font-semibold">Simpan kasbon</button></div>`);
+    $('kbNama').focus();
+    $('kbNo').onclick = () => { closeModal(); res(null); };
+    $('kbOk').onclick = () => {
+      const nama = $('kbNama').value.trim();
+      if (!nama) return toast('Nama pelanggan wajib diisi', false);
+      const jatuhTempo = $('kbTempo').value; closeModal(); res({ nama, jatuhTempo });
+    };
+  });
+}
+
+/* --- Dashboard laba (owner) --- */
+function openDash() {
+  $('dash').classList.remove('hidden');
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Jakarta' });
+  $('dashBody').innerHTML = `<div class="sticky top-0 z-10 bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between"><button id="dBack" class="font-semibold text-sm">← Kembali</button><b>Laba operasional</b><span class="w-14"></span></div>
+    <div class="p-4 space-y-3">
+      <div class="flex gap-2"><input id="dFrom" type="date" value="${today}" class="flex-1 min-w-0 h-10 rounded-lg border border-slate-300 px-2 text-sm"><input id="dTo" type="date" value="${today}" class="flex-1 min-w-0 h-10 rounded-lg border border-slate-300 px-2 text-sm"><button id="dGo" class="px-4 h-10 rounded-lg bg-slate-900 text-white text-sm font-semibold">Tampil</button></div>
+      <div id="dRes" class="space-y-3"></div></div>`;
+  $('dBack').onclick = () => $('dash').classList.add('hidden');
+  $('dGo').onclick = loadDash; loadDash();
+}
+async function loadDash() {
+  $('dRes').innerHTML = '<p class="text-center text-sm text-slate-500 py-8">Memuat…</p>';
+  try {
+    const r = await apiPost({ action: 'laporan', dari: $('dFrom').value, sampai: $('dTo').value });
+    if (!r.ok) throw new Error(r.error);
+    const stat = (l, v, c = '') => `<div class="bg-white rounded-2xl border border-slate-200 p-3"><div class="text-xs text-slate-500">${l}</div><div class="font-extrabold text-lg tabular-nums ${c}">${v}</div></div>`;
+    const line = (a, b) => `<div class="flex justify-between py-2 text-sm"><span>${esc(a)}</span><b class="tabular-nums">${b}</b></div>`;
+    $('dRes').innerHTML = `<div class="rounded-3xl bg-slate-900 text-white p-4"><div class="text-xs text-slate-400">Laba operasional</div>
+        <div class="text-4xl font-extrabold tabular-nums mt-1 ${r.laba < 0 ? 'text-red-400' : ''}">${rp(r.laba)}</div>
+        <div class="text-xs text-slate-400 mt-1">Margin ${r.margin.toFixed(1)}% · ${r.jumlahTransaksi} transaksi</div></div>
+      <div class="grid grid-cols-2 gap-3">${stat('Total penjualan', rp(r.penjualan))}${stat('HPP terjual', rp(r.hpp))}${stat('Item terjual', r.itemTerjual)}${stat('Piutang kasbon', rp(r.piutang), 'text-amber-600')}</div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-3"><h4 class="font-bold text-sm mb-1">Per metode bayar</h4><div class="divide-y divide-slate-100">${r.perMetode.map(m => line(m.metode + ' (' + m.jumlah + ')', rp(m.total))).join('') || '<p class="text-sm text-slate-500 py-2">Belum ada transaksi.</p>'}</div></div>
+      <div class="bg-white rounded-2xl border border-slate-200 p-3"><h4 class="font-bold text-sm mb-1">Produk terlaris</h4><div class="divide-y divide-slate-100">${r.topProduk.map(p => line(p.nama + ' ×' + p.qty, 'laba ' + rp(p.laba))).join('') || '<p class="text-sm text-slate-500 py-2">Belum ada data.</p>'}</div></div>`;
+  } catch (e) { $('dRes').innerHTML = '<p class="text-center text-sm text-red-600 py-8">Gagal memuat: ' + esc(e.message) + '</p>'; }
+}
+
 /* ============ INIT ============ */
 $('tgl').textContent = new Date().toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-renderMode(); renderPay(); render(); loadProduk();
+renderMode(); renderPay(); render(); drawPin();
+if (SES.token && SES.user) startApp();
 </script>
 </body>
 </html>
